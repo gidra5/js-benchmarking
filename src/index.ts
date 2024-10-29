@@ -1,20 +1,15 @@
-type BenchOptions = {
-  name: string;
-  paramsCount: number;
-  bench: (...args: number[]) => void;
-};
-type BenchArgs =
-  | [
-      name: string,
-      f: (...args: number[]) => void,
-      options?: Partial<Omit<BenchOptions, 'name' | 'bench'>>
-    ]
-  | [
-      name: string,
-      paramsCount: number,
-      f: (...args: number[]) => void,
-      options?: Partial<Omit<BenchOptions, 'paramsCount' | 'name' | 'bench'>>
-    ]
-  | [BenchOptions];
+import { program } from 'commander';
+import { benches } from './bench';
+import { ui } from './ui';
 
-export const bench = async (...args: BenchArgs) => {};
+program
+  .argument('<bench-file>', 'Path to benchmark file')
+  .description('Run benchmarks in given file')
+  .action(async (file) => {
+    console.log(`Running benchmarks in ${file}`);
+    await import(file);
+    console.log(benches);
+    ui();
+  });
+
+program.parse();

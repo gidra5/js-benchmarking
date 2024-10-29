@@ -6,7 +6,12 @@ const Counter = () => {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCounter((previousCounter) => previousCounter + 1);
+      setCounter((previousCounter) => {
+        if (previousCounter > 50) {
+          clearInterval(timer);
+        }
+        return previousCounter + 1;
+      });
     }, 100);
 
     return () => {
@@ -17,4 +22,6 @@ const Counter = () => {
   return <Text color="green">{counter} tests passed</Text>;
 };
 
-render(<Counter />);
+export const ui = () => {
+  render(<Counter />);
+};

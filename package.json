@@ -8,7 +8,7 @@
     "bench": "vitest bench",
     "test": "vitest run",
     "build": "tsc || exit 0",
-    "start": "npm run build && node ./dist/index.js",
+    "start": "vite-node ./src/index.ts -- ./src/example.ts",
     "watch": "vitest --ui",
     "compile": "bun run compile-win && bun run compile-linux",
     "compile-win": "bun build ./src/index.ts --compile --minify --target=bun-windows-x64 --sourcemap --outfile ./dist/miniUni.exe",
@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.3",
+    "commander": "^12.1.0",
     "ink": "^5.0.1",
     "react": "^18.3.1"
   }

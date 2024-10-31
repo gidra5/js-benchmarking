@@ -1,39 +1,42 @@
 import { program } from 'commander';
-import { benches } from './bench';
-import { ui } from './ui';
-import { Worker } from 'node:worker_threads';
+import { benches } from './bench.js';
+import { ui } from './ui/index.js';
+import { setEnvironmentData, Worker } from 'node:worker_threads';
 import { Iterator } from 'iterator-js';
+import { WorkerData } from './worker';
 
 program
   .argument('<bench-file>', 'Path to benchmark file')
-  .option('-w, --workers <number>', 'Number of workers')
-  .option('--interval <number>', 'Interval between resource usage samples')
+  .option('-w, --workers <number>', 'Number of workers', '1')
+  .option('--iterations <number>', 'iterations per sample', '1000')
   .description('Run benchmarks in given file')
   .action(async (file, options) => {
+    const workersCount = Number(options.workers);
+    const iterations = Number(options.iterations);
+    setEnvironmentData('iterations', iterations);
+
     await import(file);
-    console.log(`Found ${benches.length} benchmarks in ${file}`);
+    const benchesPerWorker = Math.ceil(benches.length / workersCount);
 
-    const workersCount = options.workers || 1;
-    console.log(`Running benchmarks with ${workersCount} workers`);
+    console.log('start');
 
-    const interval = options.interval || 100;
     const workers = Iterator.natural(workersCount)
-      .map(() => new Worker('./worker.js'))
+      .map<[number, number[]]>((i) => {
+        const workerBenches = Iterator.natural(benchesPerWorker)
+          .map((j) => i + j * workersCount)
+          .filter((j) => j < benches.length)
+          .map((j) => benches[j].id)
+          .toArray();
+        return [i, workerBenches];
+      })
+      .map(([id, benchIds]) => {
+        const workerData: WorkerData = { id, file, benchIds };
+        const url = new URL('./worker.js', import.meta.url);
+        return new Worker(url, { workerData });
+      })
       .toArray();
 
-    workers.forEach((worker, id) => {
-      worker.postMessage({ type: 'init', id });
-    });
-
-    const chunks = Iterator.natural(benches.length).chunks(workersCount);
-
-    for (const chunk of chunks) {
-      chunk.forEach((i, workerIndex) => {
-        workers[workerIndex].postMessage({ type: 'run', file, i });
-      });
-    }
-
-    ui();
+    ui(workers, file);
   });
 
 program.parse();

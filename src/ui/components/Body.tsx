@@ -1,5 +1,5 @@
 import { Box, BoxProps } from 'ink';
-import { useWindowDimensions } from '../hooks/useWindowDimensions';
+import { useWindowDimensions } from '../hooks/useWindowDimensions.js';
 import React from 'react';
 
 export function Body(props: BoxProps & { children?: React.ReactNode }) {

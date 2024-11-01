@@ -1,3 +1,4 @@
+import assert from 'assert';
 import { useReducer, type Reducer, useCallback } from 'react';
 
 type Viewport = [start: number, end: number];
@@ -18,36 +19,45 @@ const clamp = (value: number, min: number, max: number): number => {
 };
 
 const bound = (value: number, min: number, max: number): boolean => {
-  return value > min && value < max;
+  return value >= min && value <= max;
 };
 
 const reducer =
   (scrollPadding: number): Reducer<State, Action> =>
   (state, action) => {
+    assert(state.total > 0);
+    assert(state.window > 0);
+    assert(scrollPadding >= 0);
+    assert(state.window > scrollPadding * 2);
+    assert(state.visible[0] >= 0);
+    assert(state.visible[1] <= state.total);
+    assert(state.visible[0] <= state.visible[1]);
+
     const padded: Viewport = [
       state.visible[0] + scrollPadding,
       state.visible[1] - scrollPadding,
     ];
+
     switch (action.type) {
       case 'focus-next-option': {
         const focused = clamp(state.focused + 1, 0, state.total - 1);
-        if (bound(focused, ...padded)) {
+        if (bound(focused, padded[0], padded[1] - 1))
           return { ...state, focused };
-        }
+
         const moved: Viewport = [state.visible[0] + 1, state.visible[1] + 1];
-        moved[0] = clamp(moved[0], 0, state.total - 1);
-        moved[1] = clamp(moved[1], 0, state.total - 1);
+        if (moved[1] > state.total) return { ...state, focused };
+
         return { ...state, focused, visible: moved };
       }
 
       case 'focus-previous-option': {
         const focused = clamp(state.focused - 1, 0, state.total - 1);
-        if (bound(focused, ...padded)) {
+        if (bound(focused, padded[0], padded[1] - 1))
           return { ...state, focused };
-        }
+
         const moved: Viewport = [state.visible[0] - 1, state.visible[1] - 1];
-        moved[0] = clamp(moved[0], 0, state.total - 1);
-        moved[1] = clamp(moved[1], 0, state.total - 1);
+        if (moved[0] < 0) return { ...state, focused };
+
         return { ...state, focused, visible: moved };
       }
 
@@ -60,7 +70,7 @@ const reducer =
 export type UseSelectStateProps = {
   window: number;
   total: number;
-  scrollPadding: number;
+  scrollPadding?: number;
 };
 
 export type ScrollState = Pick<State, 'focused' | 'visible'> & {

@@ -1,21 +1,45 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Box, render, Spacer, Static, Text } from 'ink';
+import { Box, render, Text } from 'ink';
 import { Spinner } from './components/Spinner.js';
 import { Body } from './components/Body.js';
-import { Progress } from './components/Progress.js';
 import readline from 'node:readline';
 import type { Worker } from 'node:worker_threads';
 import { benches } from '../bench.js';
 import { StatsMessage, WorkerOutMessage } from '../worker.js';
 import {
   average,
-  max,
-  min,
-  quantile,
-  standardDeviation,
+  maxSorted,
+  medianSorted,
+  minSorted,
+  sampleStandardDeviation,
 } from 'simple-statistics';
 import { Iterator } from 'iterator-js';
 import { Table } from './components/Table.js';
+import {
+  ComplexityExpression,
+  constant,
+  stringify,
+} from '../complexity/index.js';
+
+const baseMeasure = { unit: 'ns', divisor: 0.001 };
+const measures = [
+  { unit: 'ms', divisor: 1 },
+  { unit: 's', divisor: 1000 },
+  { unit: 'm', divisor: 1000 * 60 },
+  { unit: 'h', divisor: 1000 * 60 * 60 },
+];
+
+const formatDuration = (duration: number): string => {
+  const measure =
+    measures.toReversed().find((m) => duration >= m.divisor) ?? baseMeasure;
+
+  return (duration / measure.divisor).toFixed(4) + measure.unit;
+};
+
+const percentile = (p: number, list: number[]): number => {
+  const index = Math.max(0, Math.ceil(list.length * p) - 1);
+  return list[index];
+};
 
 type Props = {
   workers: Worker[];
@@ -27,6 +51,7 @@ type BenchStatus = 'pending' | 'running' | 'done' | 'failed';
 type BenchState = {
   status: BenchStatus;
   stats: StatsMessage['measured'][];
+  complexity: ComplexityExpression;
 };
 
 const App = ({ workers, file }: Props) => {
@@ -34,7 +59,7 @@ const App = ({ workers, file }: Props) => {
     Iterator.iter(benches)
       .map<[number, BenchState]>((bench) => [
         bench.id,
-        { status: 'pending', stats: [] },
+        { status: 'pending', stats: [], complexity: constant() },
       ])
       .toObject()
   );
@@ -44,6 +69,8 @@ const App = ({ workers, file }: Props) => {
         name: bench.name,
         status: benchesState[bench.id].status,
         stats: benchesState[bench.id].stats,
+        durations: benchesState[bench.id].stats.map((stat) => stat.duration),
+        complexity: benchesState[bench.id].complexity,
       }))
       .toArray();
   }, [benchesState]);
@@ -53,13 +80,9 @@ const App = ({ workers, file }: Props) => {
     );
   }, [benchesState]);
 
-  // console.log(tableData.map(({ name, status }) => ({ name, status })));
-
   useEffect(() => {
     for (const worker of workers) {
       worker.on('message', (message: WorkerOutMessage) => {
-        // console.log(message);
-
         if (message.type === 'start') {
           const { benchId } = message;
           setBenchesState((state) => {
@@ -72,13 +95,10 @@ const App = ({ workers, file }: Props) => {
         if (message.type === 'stats') {
           const { benchId, measured } = message;
           setBenchesState((state) => {
-            return {
-              ...state,
-              [benchId]: {
-                ...state[benchId],
-                stats: [...state[benchId].stats, measured],
-              },
-            };
+            const index = binarySearch(state[benchId].stats, measured.duration);
+            const stats = Array.from(state[benchId].stats);
+            stats.splice(index, 0, measured);
+            return { ...state, [benchId]: { ...state[benchId], stats } };
           });
         }
         if (message.type === 'done') {
@@ -128,7 +148,6 @@ const App = ({ workers, file }: Props) => {
         columns={[
           {
             name: 'Name',
-            primary: true,
             render(entry) {
               if (entry.status === 'pending')
                 return (
@@ -142,123 +161,38 @@ const App = ({ workers, file }: Props) => {
               if (entry.status === 'failed')
                 return <Text color="red">✘ {entry.name}</Text>;
               return (
-                <>
-                  <Spinner />
-                  <Text> {entry.name}</Text>
-                </>
-              );
-            },
-          },
-          {
-            name: 'avg',
-            render(entry) {
-              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
-              return (
                 <Text>
-                  {average(entry.stats.map((stats) => stats.duration))}
+                  <Spinner /> {entry.name}
                 </Text>
               );
             },
           },
-          {
-            name: 'st. dev.',
-            render(entry) {
-              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
-              return (
-                <Text>
-                  {standardDeviation(
-                    entry.stats.map((stats) => stats.duration)
-                  )}
-                </Text>
-              );
+          ...[
+            { name: 'avg', get: average },
+            { name: 'med', get: medianSorted },
+            { name: 'st. dev.', get: sampleStandardDeviation },
+            { name: 'min', get: minSorted },
+            { name: 'max', get: maxSorted },
+            { name: 'p50', get: (stats) => percentile(0.5, stats) },
+            { name: 'p75', get: (stats) => percentile(0.75, stats) },
+            { name: 'p95', get: (stats) => percentile(0.95, stats) },
+            { name: 'p99', get: (stats) => percentile(0.99, stats) },
+            { name: 'p99.9', get: (stats) => percentile(0.999, stats) },
+          ].map(({ name, get }) => ({
+            name,
+            render(entry: (typeof tableData)[0]) {
+              if (entry.stats.length < 2) return <Text dimColor>-</Text>;
+
+              const stat = get(entry.durations);
+              return <Text>{formatDuration(stat)}</Text>;
             },
-          },
+          })),
           {
-            name: 'min',
+            name: 'complexity',
             render(entry) {
               if (entry.stats.length === 0) return <Text dimColor>-</Text>;
-              return (
-                <Text>{min(entry.stats.map((stats) => stats.duration))}</Text>
-              );
-            },
-          },
-          {
-            name: 'max',
-            render(entry) {
-              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
-              return (
-                <Text>{max(entry.stats.map((stats) => stats.duration))}</Text>
-              );
-            },
-          },
-          {
-            name: 'p50',
-            render(entry) {
-              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
-              return (
-                <Text>
-                  {quantile(
-                    entry.stats.map((stats) => stats.duration),
-                    0.5
-                  )}
-                </Text>
-              );
-            },
-          },
-          {
-            name: 'p75',
-            render(entry) {
-              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
-              return (
-                <Text>
-                  {quantile(
-                    entry.stats.map((stats) => stats.duration),
-                    0.75
-                  )}
-                </Text>
-              );
-            },
-          },
-          {
-            name: 'p95',
-            render(entry) {
-              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
-              return (
-                <Text>
-                  {quantile(
-                    entry.stats.map((stats) => stats.duration),
-                    0.95
-                  )}
-                </Text>
-              );
-            },
-          },
-          {
-            name: 'p99',
-            render(entry) {
-              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
-              return (
-                <Text>
-                  {quantile(
-                    entry.stats.map((stats) => stats.duration),
-                    0.99
-                  )}
-                </Text>
-              );
-            },
-          },
-          {
-            name: 'p99.9',
-            render(entry) {
-              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
-              return (
-                <Text>
-                  {quantile(
-                    entry.stats.map((stats) => stats.duration),
-                    0.999
-                  )}
-                </Text>
-              );
+
+              return <Text>O({stringify(entry.complexity)})</Text>;
             },
           },
         ]}
@@ -281,3 +215,15 @@ export const ui = (workers: Worker[], file: string) => {
   });
   render(<App workers={workers} file={file} />);
 };
+
+function binarySearch(stats: BenchState['stats'], duration: number): number {
+  let left = 0;
+  let right = stats.length - 1;
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    if (stats[mid].duration === duration) return mid;
+    if (stats[mid].duration < duration) left = mid + 1;
+    else right = mid - 1;
+  }
+  return left;
+}

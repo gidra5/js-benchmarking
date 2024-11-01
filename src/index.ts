@@ -8,11 +8,11 @@ import { WorkerData } from './worker';
 program
   .argument('<bench-file>', 'Path to benchmark file')
   .option('-w, --workers <number>', 'Number of workers', '1')
-  .option('-i, --iterations <number>', 'iterations per benchmark', '100')
+  .option('-i, --iterations <number>', 'iterations per benchmark', '3000')
   .option(
     '-ips, --iterations-per-sample <number>',
     'iterations per sample',
-    '100'
+    '1'
   )
   .description('Run benchmarks in given file')
   .action(async (file, options) => {

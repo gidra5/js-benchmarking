@@ -1,8 +1,11 @@
-import { useFocus, useInput } from 'ink';
+import { useInput } from 'ink';
 import { type ScrollState } from './useScrollState.js';
 
-export const useScroll = (horizontal: boolean, state: ScrollState) => {
-  const focusState = useFocus();
+export const useScroll = (
+  isActive: boolean,
+  horizontal: boolean,
+  state: ScrollState
+) => {
   useInput(
     (_, key) => {
       if (horizontal) {
@@ -21,6 +24,6 @@ export const useScroll = (horizontal: boolean, state: ScrollState) => {
         }
       }
     },
-    { isActive: focusState.isFocused }
+    { isActive }
   );
 };

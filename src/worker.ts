@@ -33,8 +33,10 @@ type Stats = {
 type Params = { sizes: number[]; params: any };
 
 const { id, file, benchIds } = workerData as WorkerData;
-const iterations = getEnvironmentData('iterations') as number;
-const iterationsPerSample = getEnvironmentData('iterationsPerSample') as number;
+const _iterations = getEnvironmentData('iterations') as number;
+const _iterationsPerSample = getEnvironmentData(
+  'iterationsPerSample'
+) as number;
 await import(file);
 const workerBenches = benches.filter((b) => benchIds.includes(b.id));
 const emit = (message: WorkerOutMessage) => {
@@ -46,7 +48,13 @@ parentPort.on('message', async (message) => {
   assert(parentPort, 'must run in worker');
   if (message.type === 'run') {
     for (const bench of workerBenches) {
-      const { id: benchId, bench: benchFn, paramsCount = 0 } = bench;
+      const {
+        id: benchId,
+        bench: benchFn,
+        paramsCount = 0,
+        iterations = _iterations,
+        iterationsPerSample = _iterationsPerSample,
+      } = bench;
       const arb = fc.tuple(...Iterator.repeat(fc.nat()).take(paramsCount));
       const getParams = (sizes: number[]): Params | undefined => {
         if (bench.genSamples) return bench.genSamples(...sizes);

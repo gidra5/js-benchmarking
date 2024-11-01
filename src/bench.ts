@@ -1,5 +1,7 @@
 type BenchOptions<T> = {
   name: string;
+  iterations?: number;
+  iterationsPerSample?: number;
   paramsCount?: number;
   genSamples?: (...args: number[]) => NoInfer<T>;
   bench: (args: T) => any | Promise<any>;

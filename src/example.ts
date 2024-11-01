@@ -38,6 +38,7 @@ bench({
     const arb = fc.array(fc.integer(), { minLength: n, maxLength: n });
     return fc.sample(arb, 1)[0];
   },
+  iterationsPerSample: 20,
 });
 
 bench({
@@ -50,6 +51,7 @@ bench({
   bench: (n: number) => fibMemoized()(n),
   paramsCount: 1,
   genSamples: (n) => Math.min(n, 32),
+  iterationsPerSample: 10000,
 });
 
 bench({
@@ -57,6 +59,7 @@ bench({
   bench: fib,
   paramsCount: 1,
   genSamples: (n) => Math.min(n, 32),
+  iterations: 1000,
 });
 
 for (let i = 0; i < 10; i++) {
@@ -65,5 +68,7 @@ for (let i = 0; i < 10; i++) {
     bench: async () => {
       await setTimeout(400 + Math.random() * 200);
     },
+    iterations: 100,
+    iterationsPerSample: 1,
   });
 }

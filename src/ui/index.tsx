@@ -41,6 +41,18 @@ const percentile = (p: number, list: number[]): number => {
   return list[index];
 };
 
+function binarySearch(stats: BenchState['stats'], duration: number): number {
+  let left = 0;
+  let right = stats.length - 1;
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    if (stats[mid].duration === duration) return mid;
+    if (stats[mid].duration < duration) left = mid + 1;
+    else right = mid - 1;
+  }
+  return left;
+}
+
 type Props = {
   workers: Worker[];
   file: string;
@@ -215,15 +227,3 @@ export const ui = (workers: Worker[], file: string) => {
   });
   render(<App workers={workers} file={file} />);
 };
-
-function binarySearch(stats: BenchState['stats'], duration: number): number {
-  let left = 0;
-  let right = stats.length - 1;
-  while (left <= right) {
-    const mid = Math.floor((left + right) / 2);
-    if (stats[mid].duration === duration) return mid;
-    if (stats[mid].duration < duration) left = mid + 1;
-    else right = mid - 1;
-  }
-  return left;
-}

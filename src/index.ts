@@ -4,10 +4,11 @@ import { ui } from './ui/index.js';
 import { setEnvironmentData, Worker } from 'node:worker_threads';
 import { Iterator } from 'iterator-js';
 import { WorkerData } from './worker';
+import os from 'node:os';
 
 program
   .argument('<bench-file>', 'Path to benchmark file')
-  .option('-w, --workers <number>', 'Number of workers', '1')
+  .option('-w, --workers <number>', 'Number of workers')
   .option('-i, --iterations <number>', 'iterations per benchmark', '3000')
   .option(
     '-ips, --iterations-per-sample <number>',
@@ -16,13 +17,14 @@ program
   )
   .description('Run benchmarks in given file')
   .action(async (file, options) => {
-    const workersCount = Number(options.workers);
+    let workersCount = Number(options.workers ?? os.availableParallelism());
     const iterations = Number(options.iterations);
     const iterationsPerSample = Number(options.iterationsPerSample);
     setEnvironmentData('iterations', iterations);
     setEnvironmentData('iterationsPerSample', iterationsPerSample);
 
     await import(file);
+    workersCount = Math.min(workersCount, benches.length);
     const benchesPerWorker = Math.ceil(benches.length / workersCount);
 
     // console.log('start');

@@ -2,7 +2,7 @@ type BenchOptions<T> = {
   name: string;
   paramsCount?: number;
   genSamples?: (...args: number[]) => NoInfer<T>;
-  bench: (args: T) => void | Promise<void>;
+  bench: (args: T) => any | Promise<any>;
 };
 
 type Bench = <T>(options: BenchOptions<T>) => void;

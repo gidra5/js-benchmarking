@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Box, render, Spacer, Static, Text } from 'ink';
 import { Spinner } from './components/Spinner.js';
 import { Body } from './components/Body.js';
@@ -6,7 +6,7 @@ import { Progress } from './components/Progress.js';
 import readline from 'node:readline';
 import type { Worker } from 'node:worker_threads';
 import { benches } from '../bench.js';
-import { StatsMessage } from '../worker.js';
+import { StatsMessage, WorkerOutMessage } from '../worker.js';
 import {
   average,
   max,
@@ -14,36 +14,90 @@ import {
   quantile,
   standardDeviation,
 } from 'simple-statistics';
+import { Iterator } from 'iterator-js';
+import { Table } from './components/Table.js';
 
 type Props = {
   workers: Worker[];
   file: string;
 };
 
-const Counter = ({ workers, file }: Props) => {
-  const [benchesPending, setPending] = useState<number[]>(
-    benches.map((b) => b.id)
+type BenchStatus = 'pending' | 'running' | 'done' | 'failed';
+
+type BenchState = {
+  status: BenchStatus;
+  stats: StatsMessage['measured'][];
+};
+
+const App = ({ workers, file }: Props) => {
+  const [benchesState, setBenchesState] = useState<Record<number, BenchState>>(
+    Iterator.iter(benches)
+      .map<[number, BenchState]>((bench) => [
+        bench.id,
+        { status: 'pending', stats: [] },
+      ])
+      .toObject()
   );
-  const [benchesRunning, setRunning] = useState<number[]>([]);
-  const [benchesDone, setDone] = useState<number[]>([]);
-  const [stats, setStats] = useState<StatsMessage[]>([]);
+  const tableData = useMemo(() => {
+    return Iterator.iter(benches)
+      .map((bench) => ({
+        name: bench.name,
+        status: benchesState[bench.id].status,
+        stats: benchesState[bench.id].stats,
+      }))
+      .toArray();
+  }, [benchesState]);
+  const done = useMemo(() => {
+    return Iterator.iterValues(benchesState).every(
+      ({ status }) => status === 'done' || status === 'failed'
+    );
+  }, [benchesState]);
+
+  // console.log(tableData.map(({ name, status }) => ({ name, status })));
 
   useEffect(() => {
     for (const worker of workers) {
-      worker.on('message', (message) => {
+      worker.on('message', (message: WorkerOutMessage) => {
         // console.log(message);
+
         if (message.type === 'start') {
           const { benchId } = message;
-          setPending((pending) => pending.filter((id) => id !== benchId));
-          setRunning((running) => [...running, benchId]);
+          setBenchesState((state) => {
+            return {
+              ...state,
+              [benchId]: { ...state[benchId], status: 'running' },
+            };
+          });
         }
         if (message.type === 'stats') {
-          setStats((stats) => [...stats, message]);
+          const { benchId, measured } = message;
+          setBenchesState((state) => {
+            return {
+              ...state,
+              [benchId]: {
+                ...state[benchId],
+                stats: [...state[benchId].stats, measured],
+              },
+            };
+          });
         }
         if (message.type === 'done') {
           const { benchId } = message;
-          setRunning((running) => running.filter((id) => id !== benchId));
-          setDone((done) => [...done, benchId]);
+          setBenchesState((state) => {
+            return {
+              ...state,
+              [benchId]: { ...state[benchId], status: 'done' },
+            };
+          });
+        }
+        if (message.type === 'failed') {
+          const { benchId } = message;
+          setBenchesState((state) => {
+            return {
+              ...state,
+              [benchId]: { ...state[benchId], status: 'failed' },
+            };
+          });
         }
       });
       worker.postMessage({ type: 'run' });
@@ -57,111 +111,161 @@ const Counter = ({ workers, file }: Props) => {
   }, []);
 
   useEffect(() => {
-    if (benchesDone.length !== benches.length) return;
+    if (!done) return;
     process.exit(0);
-  }, [benchesDone]);
+  }, [done]);
 
   return (
     <Body>
-      <Box flexDirection="column" flexShrink={0}>
+      <Box flexDirection="column" flexShrink={0} paddingBottom={2}>
         <Text>
           Found {benches.length} benchmarks in {file}
         </Text>
         <Text>Running benchmarks with {workers.length} workers</Text>
       </Box>
-      <Box
-        flexDirection="row"
-        paddingTop={2}
+      <Table
+        data={tableData}
+        columns={[
+          {
+            name: 'Name',
+            primary: true,
+            render(entry) {
+              if (entry.status === 'pending')
+                return (
+                  <Text dimColor>
+                    {'  '}
+                    {entry.name}
+                  </Text>
+                );
+              if (entry.status === 'done')
+                return <Text color="green">✔ {entry.name}</Text>;
+              if (entry.status === 'failed')
+                return <Text color="red">✘ {entry.name}</Text>;
+              return (
+                <>
+                  <Spinner />
+                  <Text> {entry.name}</Text>
+                </>
+              );
+            },
+          },
+          {
+            name: 'avg',
+            render(entry) {
+              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
+              return (
+                <Text>
+                  {average(entry.stats.map((stats) => stats.duration))}
+                </Text>
+              );
+            },
+          },
+          {
+            name: 'st. dev.',
+            render(entry) {
+              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
+              return (
+                <Text>
+                  {standardDeviation(
+                    entry.stats.map((stats) => stats.duration)
+                  )}
+                </Text>
+              );
+            },
+          },
+          {
+            name: 'min',
+            render(entry) {
+              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
+              return (
+                <Text>{min(entry.stats.map((stats) => stats.duration))}</Text>
+              );
+            },
+          },
+          {
+            name: 'max',
+            render(entry) {
+              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
+              return (
+                <Text>{max(entry.stats.map((stats) => stats.duration))}</Text>
+              );
+            },
+          },
+          {
+            name: 'p50',
+            render(entry) {
+              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
+              return (
+                <Text>
+                  {quantile(
+                    entry.stats.map((stats) => stats.duration),
+                    0.5
+                  )}
+                </Text>
+              );
+            },
+          },
+          {
+            name: 'p75',
+            render(entry) {
+              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
+              return (
+                <Text>
+                  {quantile(
+                    entry.stats.map((stats) => stats.duration),
+                    0.75
+                  )}
+                </Text>
+              );
+            },
+          },
+          {
+            name: 'p95',
+            render(entry) {
+              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
+              return (
+                <Text>
+                  {quantile(
+                    entry.stats.map((stats) => stats.duration),
+                    0.95
+                  )}
+                </Text>
+              );
+            },
+          },
+          {
+            name: 'p99',
+            render(entry) {
+              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
+              return (
+                <Text>
+                  {quantile(
+                    entry.stats.map((stats) => stats.duration),
+                    0.99
+                  )}
+                </Text>
+              );
+            },
+          },
+          {
+            name: 'p99.9',
+            render(entry) {
+              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
+              return (
+                <Text>
+                  {quantile(
+                    entry.stats.map((stats) => stats.duration),
+                    0.999
+                  )}
+                </Text>
+              );
+            },
+          },
+        ]}
         flexGrow={1}
         flexShrink={1}
         flexBasis="100%"
-      >
-        <Box overflow="hidden" flexDirection="column">
-          <Text>Pending</Text>
-          <Box
-            overflow="hidden"
-            flexDirection="column"
-            flexBasis="100%"
-            flexGrow={1}
-            flexShrink={1}
-          >
-            {benchesPending.map((benchId) => {
-              const bench = benches[benchId];
-              return (
-                <Box key={benchId} minHeight={1}>
-                  <Text dimColor>{bench.name}</Text>
-                </Box>
-              );
-            })}
-          </Box>
-        </Box>
-        <Box paddingLeft={1} overflow="hidden" flexDirection="column">
-          <Text>Running</Text>
-          <Box
-            overflow="hidden"
-            flexDirection="column"
-            flexBasis="100%"
-            flexGrow={1}
-            flexShrink={1}
-          >
-            {benchesRunning.map((benchId) => {
-              const bench = benches[benchId];
-              const benchStats = stats
-                .filter((s) => s.benchId === benchId)
-                .map((s) => s.measured.duration);
-              if (benchStats.length === 0) {
-                return (
-                  <Box key={benchId} minHeight={1}>
-                    <Spinner />
-                    <Text> {bench.name}</Text>
-                  </Box>
-                );
-              }
-              return (
-                <Box key={benchId} minHeight={1}>
-                  <Spinner />
-                  <Text>
-                    {' '}
-                    {bench.name} avg: {average(benchStats)}
-                    std: {standardDeviation(benchStats)}
-                    min: {min(benchStats)}
-                    max: {max(benchStats)}
-                    p99: {quantile(benchStats, 0.99)}
-                  </Text>
-                </Box>
-              );
-            })}
-          </Box>
-        </Box>
-        <Box paddingLeft={1} overflow="hidden" flexDirection="column">
-          <Text>Done</Text>
-          <Box
-            overflow="hidden"
-            flexDirection="column"
-            flexBasis="100%"
-            flexGrow={1}
-            flexShrink={1}
-          >
-            {benchesDone.map((benchId) => {
-              const bench = benches[benchId];
-              const benchStats = stats
-                .filter((s) => s.benchId === benchId)
-                .map((s) => s.measured.duration);
-              return (
-                <Box key={benchId} minHeight={1}>
-                  <Text color="green">
-                    ✔ {bench.name} avg: {average(benchStats)}
-                    std: {standardDeviation(benchStats)}
-                    min: {min(benchStats)}
-                    max: {max(benchStats)}
-                    p99: {quantile(benchStats, 0.99)}
-                  </Text>
-                </Box>
-              );
-            })}
-          </Box>
-        </Box>
-      </Box>
+      />
     </Body>
   );
 };
@@ -175,5 +279,5 @@ export const ui = (workers: Worker[], file: string) => {
       process.exit(0);
     }
   });
-  render(<Counter workers={workers} file={file} />);
+  render(<App workers={workers} file={file} />);
 };

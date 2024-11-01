@@ -8,17 +8,24 @@ import { WorkerData } from './worker';
 program
   .argument('<bench-file>', 'Path to benchmark file')
   .option('-w, --workers <number>', 'Number of workers', '1')
-  .option('--iterations <number>', 'iterations per sample', '1000')
+  .option('-i, --iterations <number>', 'iterations per benchmark', '100')
+  .option(
+    '-ips, --iterations-per-sample <number>',
+    'iterations per sample',
+    '100'
+  )
   .description('Run benchmarks in given file')
   .action(async (file, options) => {
     const workersCount = Number(options.workers);
     const iterations = Number(options.iterations);
+    const iterationsPerSample = Number(options.iterationsPerSample);
     setEnvironmentData('iterations', iterations);
+    setEnvironmentData('iterationsPerSample', iterationsPerSample);
 
     await import(file);
     const benchesPerWorker = Math.ceil(benches.length / workersCount);
 
-    console.log('start');
+    // console.log('start');
 
     const workers = Iterator.natural(workersCount)
       .map<[number, number[]]>((i) => {
@@ -34,6 +41,12 @@ program
         const url = new URL('./worker.js', import.meta.url);
         return new Worker(url, { workerData });
       })
+      // .inspect((w) => {
+      //   w.postMessage({ type: 'run' });
+      //   w.on('message', (message) => {
+      //     console.log(message);
+      //   });
+      // })
       .toArray();
 
     ui(workers, file);

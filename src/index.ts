@@ -1,9 +1,7 @@
 import { program } from 'commander';
 import { benches } from './bench.js';
 import { ui } from './ui/index.js';
-import { setEnvironmentData, Worker } from 'node:worker_threads';
-import { Iterator } from 'iterator-js';
-import { WorkerData } from './worker';
+import { setEnvironmentData } from 'node:worker_threads';
 import os from 'node:os';
 
 program
@@ -17,41 +15,15 @@ program
   )
   .description('Run benchmarks in given file')
   .action(async (file, options) => {
-    let workersCount = Number(options.workers ?? os.availableParallelism());
+    const workersCount = Number(options.workers ?? os.availableParallelism());
     const iterations = Number(options.iterations);
     const iterationsPerSample = Number(options.iterationsPerSample);
     setEnvironmentData('iterations', iterations);
     setEnvironmentData('iterationsPerSample', iterationsPerSample);
 
     await import(file);
-    workersCount = Math.min(workersCount, benches.length);
-    const benchesPerWorker = Math.ceil(benches.length / workersCount);
 
-    // console.log('start');
-
-    const workers = Iterator.natural(workersCount)
-      .map<[number, number[]]>((i) => {
-        const workerBenches = Iterator.natural(benchesPerWorker)
-          .map((j) => i + j * workersCount)
-          .filter((j) => j < benches.length)
-          .map((j) => benches[j].id)
-          .toArray();
-        return [i, workerBenches];
-      })
-      .map(([id, benchIds]) => {
-        const workerData: WorkerData = { id, file, benchIds };
-        const url = new URL('./worker.js', import.meta.url);
-        return new Worker(url, { workerData });
-      })
-      // .inspect((w) => {
-      //   w.postMessage({ type: 'run' });
-      //   w.on('message', (message) => {
-      //     console.log(message);
-      //   });
-      // })
-      .toArray();
-
-    ui(workers, file);
+    ui(Math.min(workersCount, benches.length), file);
   });
 
 program.parse();

@@ -40,12 +40,26 @@ const _iterationsPerSample = getEnvironmentData(
 await import(file);
 const workerBenches = benches.filter((b) => benchIds.includes(b.id));
 const emit = (message: WorkerOutMessage) => {
-  assert(parentPort, 'must run in worker');
+  assert(parentPort);
   parentPort.postMessage(message);
 };
+const stats: Record<number, Stats> = {};
 
+// const durations = benchesState[bench.id].stats.map((stat) => stat.duration);
+// const len = durations.length;
+// const stats = Iterator.iterEntries(_stats)
+//   .mapValues((stat) => stat(len, durations))
+//   .toObject();
+// return {
+//   id: bench.id,
+//   name: bench.name,
+//   status: benchesState[bench.id].status,
+//   stats,
+//   complexity: benchesState[bench.id].complexity,
+// };
 parentPort.on('message', async (message) => {
-  assert(parentPort, 'must run in worker');
+  assert(parentPort);
+
   if (message.type === 'run') {
     for (const bench of workerBenches) {
       const {
@@ -87,9 +101,5 @@ parentPort.on('message', async (message) => {
         emit({ type: 'failed', benchId, ...error });
       }
     }
-  }
-  if (message.type === 'abort') {
-    parentPort.postMessage({ type: 'stats', id, file, benchIds });
-    parentPort.close();
   }
 });

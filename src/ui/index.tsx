@@ -3,9 +3,9 @@ import { Box, render, Text } from 'ink';
 import { Spinner } from './components/Spinner.js';
 import { Body } from './components/Body.js';
 import readline from 'node:readline';
-import type { Worker } from 'node:worker_threads';
+import { Worker } from 'node:worker_threads';
 import { benches } from '../bench.js';
-import { StatsMessage, WorkerOutMessage } from '../worker.js';
+import { StatsMessage, WorkerData, WorkerOutMessage } from '../worker.js';
 import {
   average,
   maxSorted,
@@ -54,7 +54,7 @@ function binarySearch(stats: BenchState['stats'], duration: number): number {
 }
 
 type Props = {
-  workers: Worker[];
+  workersCount: number;
   file: string;
 };
 
@@ -65,8 +65,36 @@ type BenchState = {
   stats: StatsMessage['measured'][];
   complexity: ComplexityExpression;
 };
+type BenchState2 = {
+  name: string;
+  status: BenchStatus;
+  stats: { [K in keyof typeof _stats]: ReturnType<(typeof _stats)[K]> };
+  complexity: ComplexityExpression;
+};
 
-const App = ({ workers, file }: Props) => {
+const _stats = {
+  ['avg']: (len: number, durations: number[]) => len > 0 && average(durations),
+  ['med']: (len: number, durations: number[]) =>
+    len > 0 && medianSorted(durations),
+  ['st. dev.']: (len: number, durations: number[]) =>
+    len > 2 && sampleStandardDeviation(durations),
+  ['min']: (len: number, durations: number[]) =>
+    len > 0 && minSorted(durations),
+  ['p50']: (len: number, durations: number[]) =>
+    len > 0 && percentile(0.5, durations),
+  ['p75']: (len: number, durations: number[]) =>
+    len > 0 && percentile(0.75, durations),
+  ['p95']: (len: number, durations: number[]) =>
+    len > 0 && percentile(0.95, durations),
+  ['p99']: (len: number, durations: number[]) =>
+    len > 0 && percentile(0.99, durations),
+  ['p99.9']: (len: number, durations: number[]) =>
+    len > 0 && percentile(0.999, durations),
+  ['max']: (len: number, durations: number[]) =>
+    len > 0 && maxSorted(durations),
+};
+
+const useBenches = (workersCount: number, file: string) => {
   const [benchesState, setBenchesState] = useState<Record<number, BenchState>>(
     Iterator.iter(benches)
       .map<[number, BenchState]>((bench) => [
@@ -77,22 +105,62 @@ const App = ({ workers, file }: Props) => {
   );
   const tableData = useMemo(() => {
     return Iterator.iter(benches)
-      .map((bench) => ({
-        name: bench.name,
-        status: benchesState[bench.id].status,
-        stats: benchesState[bench.id].stats,
-        durations: benchesState[bench.id].stats.map((stat) => stat.duration),
-        complexity: benchesState[bench.id].complexity,
-      }))
-      .toArray();
+      .map((bench) => {
+        const durations = benchesState[bench.id].stats.map(
+          (stat) => stat.duration
+        );
+        const len = durations.length;
+        const stats = Iterator.iterEntries(_stats)
+          .mapValues((stat) => stat(len, durations))
+          .toObject();
+        return {
+          id: bench.id,
+          name: bench.name,
+          status: benchesState[bench.id].status,
+          stats,
+          complexity: benchesState[bench.id].complexity,
+        };
+      })
+      .map<[number, BenchState2]>((bench) => [bench.id, bench])
+      .toObject();
   }, [benchesState]);
   const done = useMemo(() => {
-    return Iterator.iterValues(benchesState).every(
-      ({ status }) => status === 'done' || status === 'failed'
+    return Iterator.iter(benches).every(
+      ({ id }) =>
+        tableData[id].status === 'done' || tableData[id].status === 'failed'
     );
-  }, [benchesState]);
+  }, [tableData]);
+  const stats = useMemo(() => {
+    return Iterator.iterValues(tableData)
+      .map(({ name, status, stats: _stats, complexity }) => {
+        const stats = Iterator.iterEntries(_stats)
+          .map<[keyof typeof _stats, string]>(([name, value]) => [
+            name,
+            value !== false ? formatDuration(value) : '-',
+          ])
+          .toObject();
+        return { name, status, stats, complexity };
+      })
+      .toArray();
+  }, [tableData]);
 
   useEffect(() => {
+    const benchesPerWorker = Math.ceil(benches.length / workersCount);
+    const workers = Iterator.natural(workersCount)
+      .map<[number, number[]]>((i) => {
+        const workerBenches = Iterator.natural(benchesPerWorker)
+          .map((j) => i + j * workersCount)
+          .filter((j) => j < benches.length)
+          .map((j) => benches[j].id)
+          .toArray();
+        return [i, workerBenches];
+      })
+      .map(([id, benchIds]) => {
+        const workerData: WorkerData = { id, file, benchIds };
+        const url = new URL('../worker.js', import.meta.url);
+        return new Worker(url, { workerData });
+      })
+      .toArray();
     for (const worker of workers) {
       worker.on('message', (message: WorkerOutMessage) => {
         if (message.type === 'start') {
@@ -136,11 +204,16 @@ const App = ({ workers, file }: Props) => {
     }
     return () => {
       for (const worker of workers) {
-        worker.removeAllListeners('message');
-        worker.postMessage({ type: 'abort' });
+        worker.terminate();
       }
     };
   }, []);
+
+  return { done, stats };
+};
+
+const App = ({ workersCount, file }: Props) => {
+  const { done, stats } = useBenches(workersCount, file);
 
   useEffect(() => {
     if (!done) return;
@@ -153,10 +226,10 @@ const App = ({ workers, file }: Props) => {
         <Text>
           Found {benches.length} benchmarks in {file}
         </Text>
-        <Text>Running benchmarks with {workers.length} workers</Text>
+        <Text>Running benchmarks with {workersCount} workers</Text>
       </Box>
       <Table
-        data={tableData}
+        data={stats}
         columns={[
           {
             name: 'Name',
@@ -179,31 +252,15 @@ const App = ({ workers, file }: Props) => {
               );
             },
           },
-          ...[
-            { name: 'avg', get: average },
-            { name: 'med', get: medianSorted },
-            { name: 'st. dev.', get: sampleStandardDeviation },
-            { name: 'min', get: minSorted },
-            { name: 'max', get: maxSorted },
-            { name: 'p50', get: (stats) => percentile(0.5, stats) },
-            { name: 'p75', get: (stats) => percentile(0.75, stats) },
-            { name: 'p95', get: (stats) => percentile(0.95, stats) },
-            { name: 'p99', get: (stats) => percentile(0.99, stats) },
-            { name: 'p99.9', get: (stats) => percentile(0.999, stats) },
-          ].map(({ name, get }) => ({
+          ...Iterator.iterKeys(stats[0].stats).map((name) => ({
             name,
-            render(entry: (typeof tableData)[0]) {
-              if (entry.stats.length < 2) return <Text dimColor>-</Text>;
-
-              const stat = get(entry.durations);
-              return <Text>{formatDuration(stat)}</Text>;
+            render(entry: (typeof stats)[0]) {
+              return <Text>{entry.stats[name]}</Text>;
             },
           })),
           {
             name: 'complexity',
             render(entry) {
-              if (entry.stats.length === 0) return <Text dimColor>-</Text>;
-
               return <Text>O({stringify(entry.complexity)})</Text>;
             },
           },
@@ -216,7 +273,7 @@ const App = ({ workers, file }: Props) => {
   );
 };
 
-export const ui = (workers: Worker[], file: string) => {
+export const ui = (workersCount: number, file: string) => {
   process.stdin.setRawMode(true);
   process.stdin.resume();
   readline.emitKeypressEvents(process.stdin);
@@ -225,5 +282,5 @@ export const ui = (workers: Worker[], file: string) => {
       process.exit(0);
     }
   });
-  render(<App workers={workers} file={file} />);
+  render(<App workersCount={workersCount} file={file} />);
 };

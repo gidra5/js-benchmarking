@@ -7,11 +7,12 @@ import {
 import { benches } from './bench.js';
 import fc from 'fast-check';
 import { Iterator } from 'iterator-js';
+import { ComplexityExpression, constant } from './complexity/index.js';
+import { stats as _stats, binarySearch, Stats } from './runner/index.js';
 
 assert(parentPort, 'must run in worker');
 
 export type WorkerData = {
-  id: number;
   file: string;
   benchIds: number[];
 };
@@ -26,13 +27,9 @@ export type WorkerOutMessage =
   | { type: 'failed'; benchId: number; error: any; sizes: number[] }
   | { type: 'done'; benchId: number }
   | { type: 'start'; benchId: number };
-type Stats = {
-  duration: number;
-  sizes: number[];
-};
 type Params = { sizes: number[]; params: any };
 
-const { id, file, benchIds } = workerData as WorkerData;
+const { file, benchIds } = workerData as WorkerData;
 const _iterations = getEnvironmentData('iterations') as number;
 const _iterationsPerSample = getEnvironmentData(
   'iterationsPerSample'
@@ -43,20 +40,41 @@ const emit = (message: WorkerOutMessage) => {
   assert(parentPort);
   parentPort.postMessage(message);
 };
-const stats: Record<number, Stats> = {};
 
-// const durations = benchesState[bench.id].stats.map((stat) => stat.duration);
-// const len = durations.length;
-// const stats = Iterator.iterEntries(_stats)
-//   .mapValues((stat) => stat(len, durations))
-//   .toObject();
-// return {
-//   id: bench.id,
-//   name: bench.name,
-//   status: benchesState[bench.id].status,
-//   stats,
-//   complexity: benchesState[bench.id].complexity,
-// };
+const durations: Record<number, number[]> = Iterator.iter(benches)
+  .map<[number, number[]]>((bench) => [bench.id, []])
+  .toObject();
+const avgs: Record<number, number> = Iterator.iter(benches)
+  .map<[number, number]>((bench) => [bench.id, 0])
+  .toObject();
+const avgSquares: Record<number, number> = Iterator.iter(benches)
+  .map<[number, number]>((bench) => [bench.id, 0])
+  .toObject();
+const sizes: Record<number, number[][]> = Iterator.iter(benches)
+  .map<[number, number[][]]>((bench) => [bench.id, []])
+  .toObject();
+const complexities: Record<number, ComplexityExpression> = Iterator.iter(
+  benches
+)
+  .map<[number, ComplexityExpression]>((bench) => [bench.id, constant()])
+  .toObject();
+// const errors: Record<number, { error: any; sizes: number[] }> = {};
+
+function recomputeStats(benchId: number, duration: number) {
+  const _durations = durations[benchId];
+  const index = binarySearch(_durations, duration);
+  _durations.splice(index, 0, duration);
+  const len = _durations.length;
+  avgs[benchId] += (duration - avgs[benchId]) / len;
+  avgSquares[benchId] += (duration * duration - avgSquares[benchId]) / len;
+  const avg = avgs[benchId];
+  const _avgSquares = avgSquares[benchId];
+  const stats = Iterator.iterEntries(_stats)
+    .mapValues((stat) => stat(len, _durations, avg, _avgSquares))
+    .toObject();
+  return stats;
+}
+
 parentPort.on('message', async (message) => {
   assert(parentPort);
 
@@ -74,18 +92,20 @@ parentPort.on('message', async (message) => {
         if (bench.genSamples) return bench.genSamples(...sizes);
       };
       const measure = async (): Promise<Stats> => {
-        // const sizes = fc.sample(arb, 1)[0];
-        const sizes = Iterator.repeat(1000).take(paramsCount).toArray();
-        const params = getParams(sizes);
+        // const _sizes = fc.sample(arb, 1)[0];
+        const _sizes = Iterator.repeat(1000).take(paramsCount).toArray();
+        const params = getParams(_sizes);
         try {
           const start = performance.now();
           for (let i = 0; i < iterationsPerSample; i++) {
             await benchFn(params);
           }
           const end = performance.now();
-          return { duration: (end - start) / iterationsPerSample, sizes };
+          const duration = (end - start) / iterationsPerSample;
+          // sizes[benchId].push(_sizes);
+          return recomputeStats(benchId, duration);
         } catch (error) {
-          throw { error, sizes };
+          throw { error, sizes: _sizes };
         }
       };
 

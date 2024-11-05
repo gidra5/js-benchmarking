@@ -5,12 +5,26 @@ type BenchOptions<T> = {
   paramsCount?: number;
   genSamples?: (...args: number[]) => NoInfer<T>;
   bench: (args: T) => any | Promise<any>;
+  baseCase?: number[];
 };
 
 type Bench = <T>(options: BenchOptions<T>) => void;
 
-export const benches: (BenchOptions<any> & { id: number })[] = [];
+type BenchItem = BenchOptions<any> & {
+  id: number;
+  type: 'complexityMeasurement' | 'pureMeasurement';
+};
 
-export const bench: Bench = (...args) => {
-  benches.push({ ...args[0], id: benches.length });
+export const benches: BenchItem[] = [];
+
+export const bench: Bench = (options) => {
+  if (options.genSamples) {
+    benches.push({
+      ...options,
+      id: benches.length,
+      type: 'complexityMeasurement',
+    });
+  } else {
+    benches.push({ ...options, id: benches.length, type: 'pureMeasurement' });
+  }
 };

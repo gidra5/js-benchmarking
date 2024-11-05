@@ -45,17 +45,21 @@ const durations: Record<number, number[]> = Iterator.iter(benches)
   .map<[number, number[]]>((bench) => [bench.id, []])
   .toObject();
 const avgs: Record<number, number> = Iterator.iter(benches)
+  .filter((bench) => bench.type === 'pureMeasurement')
   .map<[number, number]>((bench) => [bench.id, 0])
   .toObject();
 const avgSquares: Record<number, number> = Iterator.iter(benches)
+  .filter((bench) => bench.type === 'pureMeasurement')
   .map<[number, number]>((bench) => [bench.id, 0])
   .toObject();
 const sizes: Record<number, number[][]> = Iterator.iter(benches)
+  .filter((bench) => bench.type === 'complexityMeasurement')
   .map<[number, number[][]]>((bench) => [bench.id, []])
   .toObject();
 const complexities: Record<number, ComplexityExpression> = Iterator.iter(
   benches
 )
+  .filter((bench) => bench.type === 'complexityMeasurement')
   .map<[number, ComplexityExpression]>((bench) => [bench.id, constant()])
   .toObject();
 // const errors: Record<number, { error: any; sizes: number[] }> = {};

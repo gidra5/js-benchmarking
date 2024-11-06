@@ -12,6 +12,11 @@ program
   )
   .option('-i, --iterations <number>', 'iterations per benchmark', '3000')
   .option(
+    '-ci, --complexity-iterations <number>',
+    'iterations per benchmark for complexity measurement',
+    '3000'
+  )
+  .option(
     '-ips, --iterations-per-sample <number>',
     'Initial iterations per sample',
     '1'
@@ -25,9 +30,11 @@ program
   .action(async (file, options) => {
     const workersCount = Number(options.workers ?? os.availableParallelism());
     const iterations = Number(options.iterations);
+    const complexityIterations = Number(options.complexityIterations);
     const iterationsPerSample = Number(options.iterationsPerSample);
     const targetLatency = Number(options.targetLatency);
     setEnvironmentData('iterations', iterations);
+    setEnvironmentData('complexityIterations', complexityIterations);
     setEnvironmentData('iterationsPerSample', iterationsPerSample);
     setEnvironmentData('targetLatency', targetLatency);
 

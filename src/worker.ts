@@ -27,10 +27,12 @@ export type WorkerOutMessage =
   | { type: 'failed'; benchId: number; error: any; sizes: number[] }
   | { type: 'done'; benchId: number }
   | { type: 'start'; benchId: number };
-type Params = { sizes: number[]; params: any };
 
 const { file, benchIds } = workerData as WorkerData;
 const _iterations = getEnvironmentData('iterations') as number;
+const _complexityIterations = getEnvironmentData(
+  'complexityIterations'
+) as number;
 const _iterationsPerSample = getEnvironmentData(
   'iterationsPerSample'
 ) as number;
@@ -60,7 +62,7 @@ const sizes: Record<number, number[][]> = Iterator.iter(benches)
 const complexities: Record<number, ComplexityExpression> = Iterator.iter(
   benches
 )
-  .filter((bench) => bench.type === 'complexityMeasurement')
+  // .filter((bench) => bench.type === 'complexityMeasurement')
   .map<[number, ComplexityExpression]>((bench) => [bench.id, constant()])
   .toObject();
 // const errors: Record<number, { error: any; sizes: number[] }> = {};
@@ -79,6 +81,8 @@ function recomputeStats(benchId: number, duration: number) {
     .toObject();
   return stats;
 }
+const sizeArb = (paramsCount: number) =>
+  fc.tuple(...Iterator.repeat(fc.nat()).take(paramsCount));
 
 parentPort.on('message', async (message) => {
   assert(parentPort);
@@ -88,34 +92,40 @@ parentPort.on('message', async (message) => {
       const {
         id: benchId,
         bench: benchFn,
-        paramsCount = 0,
         iterations = _iterations,
+        complexityIterations = _complexityIterations,
       } = bench;
       let iterationsPerSample =
         bench.iterationsPerSample ?? _iterationsPerSample;
-      const arb = fc.tuple(...Iterator.repeat(fc.nat()).take(paramsCount));
-      const getParams = (sizes: number[]): Params | undefined => {
-        if (bench.genSamples) return bench.genSamples(...sizes);
+      const measure = async (
+        params?: any,
+        updateIPS = true
+      ): Promise<Stats> => {
+        const start = performance.now();
+        for (let i = 0; i < iterationsPerSample; i++) {
+          await benchFn(params);
+        }
+        const end = performance.now();
+        const timePerSample = end - start;
+        const duration = timePerSample / iterationsPerSample;
+
+        if (
+          updateIPS &&
+          timePerSample < targetLatency &&
+          !bench.iterationsPerSample
+        ) {
+          iterationsPerSample = Math.ceil(targetLatency / duration);
+        }
+
+        return recomputeStats(benchId, duration);
       };
-      const measure = async (): Promise<Stats> => {
-        // const _sizes = fc.sample(arb, 1)[0];
-        const _sizes = Iterator.repeat(1000).take(paramsCount).toArray();
-        const params = getParams(_sizes);
+      const measureSize = async (_sizes: number[]): Promise<Stats> => {
+        assert('genSamples' in bench);
+        const params = bench.genSamples(..._sizes);
         try {
-          const start = performance.now();
-          for (let i = 0; i < iterationsPerSample; i++) {
-            await benchFn(params);
-          }
-          const end = performance.now();
-          const timePerSample = end - start;
-          const duration = timePerSample / iterationsPerSample;
+          const measured = await measure(params, false);
           // sizes[benchId].push(_sizes);
-
-          if (timePerSample < targetLatency && !bench.iterationsPerSample) {
-            iterationsPerSample = Math.ceil(targetLatency / duration);
-          }
-
-          return recomputeStats(benchId, duration);
+          return measured;
         } catch (error) {
           throw { error, sizes: _sizes };
         }
@@ -124,10 +134,28 @@ parentPort.on('message', async (message) => {
       emit({ type: 'start', benchId });
 
       try {
-        for (let i = 0; i < iterations; i++) {
-          const measured = await measure();
-          emit({ type: 'stats', benchId, measured });
+        if ('baseCase' in bench) {
+          // const paramsCount = bench.paramsCount;
+          for (let i = 0; i < iterations; i++) {
+            const base = bench.baseCase();
+            const measured = await measure(base);
+            emit({ type: 'stats', benchId, measured });
+          }
+
+          // iterationsPerSample = 1;
+          // for (let i = 0; i < complexityIterations; i++) {
+          //   const sizes = Iterator.repeat(1000).take(paramsCount).toArray();
+          //   // const sizes = fc.sample(sizeArb(paramsCount), 1)[0];
+          //   const measured = await measureSize(sizes);
+          //   emit({ type: 'stats', benchId, measured });
+          // }
+        } else {
+          for (let i = 0; i < iterations; i++) {
+            const measured = await measure();
+            emit({ type: 'stats', benchId, measured });
+          }
         }
+
         emit({ type: 'done', benchId });
       } catch (error: any) {
         emit({ type: 'failed', benchId, ...error });

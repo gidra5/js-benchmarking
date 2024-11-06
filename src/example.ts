@@ -32,24 +32,27 @@ function quicksort(arr: number[]): number[] {
 bench({
   name: 'quicksort',
   bench: quicksort,
+
   paramsCount: 1,
   genSamples: (n) => {
     n = Math.min(n, 1000);
     const arb = fc.array(fc.integer(), { minLength: n, maxLength: n });
     return fc.sample(arb, 1)[0];
   },
+  baseCase: () => Iterator.natural(1000).toArray().toReversed(),
 });
 
-bench({
-  name: 'quicksort fixed worst case',
-  bench: () => quicksort(Iterator.natural(1000).toArray().toReversed()),
-});
+// bench({
+//   name: 'quicksort fixed worst case',
+//   bench: () => quicksort(Iterator.natural(1000).toArray().toReversed()),
+// });
 
 bench({
   name: 'fib memoized',
   bench: (n: number) => fibMemoized()(n),
   paramsCount: 1,
   genSamples: (n) => Math.min(n, 32),
+  baseCase: () => 32,
 });
 
 bench({
@@ -57,15 +60,24 @@ bench({
   bench: fib,
   paramsCount: 1,
   genSamples: (n) => Math.min(n, 32),
+  baseCase: () => 32,
   iterations: 1000,
 });
 
-for (let i = 0; i < 10; i++) {
-  bench({
-    name: 'bench ' + i,
-    bench: async () => {
-      await setTimeout(400 + Math.random() * 200);
-    },
-    iterations: 100,
-  });
-}
+bench({
+  name: 'timeout',
+  bench: async () => {
+    await setTimeout(215 + Math.random() * 171);
+  },
+  iterations: 1000,
+});
+
+// for (let i = 0; i < 10; i++) {
+//   bench({
+//     name: 'bench ' + i,
+//     bench: async () => {
+//       await setTimeout(400 + Math.random() * 200);
+//     },
+//     iterations: 100,
+//   });
+// }

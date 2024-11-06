@@ -16,9 +16,11 @@ function percentile(p: number, list: number[]): number {
 }
 
 export function variance(avg: number, avgSquares: number, len: number): number {
+  if (len < 2) return 0;
+  // return avgSquares - avg * avg;
+
   const k1 = len / (len - 1);
-  const k2 = (len + 1) / (len - 1);
-  return Math.abs(k1 * avgSquares - k2 * avg * avg);
+  return k1 * (avgSquares - avg * avg);
 }
 
 export type Stats = {

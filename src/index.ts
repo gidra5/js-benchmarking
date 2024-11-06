@@ -6,20 +6,30 @@ import os from 'node:os';
 
 program
   .argument('<bench-file>', 'Path to benchmark file')
-  .option('-w, --workers <number>', 'Number of workers')
+  .option(
+    '-w, --workers <number>',
+    'Number of workers. Default is os.availableParallelism()'
+  )
   .option('-i, --iterations <number>', 'iterations per benchmark', '3000')
   .option(
     '-ips, --iterations-per-sample <number>',
-    'iterations per sample',
+    'Initial iterations per sample',
     '1'
+  )
+  .option(
+    '-tl, --target-latency <number>',
+    'target latency for updates in ms. Used to adjust iterations per sample count',
+    '16'
   )
   .description('Run benchmarks in given file')
   .action(async (file, options) => {
     const workersCount = Number(options.workers ?? os.availableParallelism());
     const iterations = Number(options.iterations);
     const iterationsPerSample = Number(options.iterationsPerSample);
+    const targetLatency = Number(options.targetLatency);
     setEnvironmentData('iterations', iterations);
     setEnvironmentData('iterationsPerSample', iterationsPerSample);
+    setEnvironmentData('targetLatency', targetLatency);
 
     await import(file);
 

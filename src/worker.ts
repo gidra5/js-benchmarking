@@ -34,6 +34,7 @@ const _iterations = getEnvironmentData('iterations') as number;
 const _iterationsPerSample = getEnvironmentData(
   'iterationsPerSample'
 ) as number;
+const targetLatency = getEnvironmentData('targetLatency') as number;
 await import(file);
 const workerBenches = benches.filter((b) => benchIds.includes(b.id));
 const emit = (message: WorkerOutMessage) => {
@@ -45,15 +46,15 @@ const durations: Record<number, number[]> = Iterator.iter(benches)
   .map<[number, number[]]>((bench) => [bench.id, []])
   .toObject();
 const avgs: Record<number, number> = Iterator.iter(benches)
-  .filter((bench) => bench.type === 'pureMeasurement')
+  // .filter((bench) => bench.type === 'pureMeasurement')
   .map<[number, number]>((bench) => [bench.id, 0])
   .toObject();
 const avgSquares: Record<number, number> = Iterator.iter(benches)
-  .filter((bench) => bench.type === 'pureMeasurement')
+  // .filter((bench) => bench.type === 'pureMeasurement')
   .map<[number, number]>((bench) => [bench.id, 0])
   .toObject();
 const sizes: Record<number, number[][]> = Iterator.iter(benches)
-  .filter((bench) => bench.type === 'complexityMeasurement')
+  // .filter((bench) => bench.type === 'complexityMeasurement')
   .map<[number, number[][]]>((bench) => [bench.id, []])
   .toObject();
 const complexities: Record<number, ComplexityExpression> = Iterator.iter(
@@ -89,8 +90,9 @@ parentPort.on('message', async (message) => {
         bench: benchFn,
         paramsCount = 0,
         iterations = _iterations,
-        iterationsPerSample = _iterationsPerSample,
       } = bench;
+      let iterationsPerSample =
+        bench.iterationsPerSample ?? _iterationsPerSample;
       const arb = fc.tuple(...Iterator.repeat(fc.nat()).take(paramsCount));
       const getParams = (sizes: number[]): Params | undefined => {
         if (bench.genSamples) return bench.genSamples(...sizes);
@@ -105,8 +107,14 @@ parentPort.on('message', async (message) => {
             await benchFn(params);
           }
           const end = performance.now();
-          const duration = (end - start) / iterationsPerSample;
+          const timePerSample = end - start;
+          const duration = timePerSample / iterationsPerSample;
           // sizes[benchId].push(_sizes);
+
+          if (timePerSample < targetLatency && !bench.iterationsPerSample) {
+            iterationsPerSample = Math.ceil(targetLatency / duration);
+          }
+
           return recomputeStats(benchId, duration);
         } catch (error) {
           throw { error, sizes: _sizes };

@@ -1,10 +1,3 @@
-import {
-  addToMean,
-  average,
-  medianSorted,
-  sampleStandardDeviation,
-} from 'simple-statistics';
-
 export function binarySearch(stats: number[], duration: number): number {
   let left = 0;
   let right = stats.length - 1;
@@ -25,7 +18,7 @@ function percentile(p: number, list: number[]): number {
 export function variance(avg: number, avgSquares: number, len: number): number {
   const k1 = len / (len - 1);
   const k2 = (len + 1) / (len - 1);
-  return k1 * avgSquares - k2 * avg * avg;
+  return Math.abs(k1 * avgSquares - k2 * avg * avg);
 }
 
 export type Stats = {
@@ -39,7 +32,7 @@ export const stats = {
     durations: number[],
     avg: number,
     avgSquares: number
-  ) => len > 0 && variance(avg, avgSquares, len),
+  ) => len > 0 && Math.sqrt(variance(avg, avgSquares, len)),
   ['min']: (len: number, durations: number[]) =>
     len > 0 && percentile(0, durations),
   ['p50']: (len: number, durations: number[]) =>

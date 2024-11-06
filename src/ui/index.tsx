@@ -27,7 +27,8 @@ const measures = [
 
 const formatDuration = (duration: number): string => {
   const measure =
-    measures.toReversed().find((m) => duration >= m.divisor) ?? baseMeasure;
+    measures.toReversed().find((m) => Math.abs(duration) >= m.divisor) ??
+    baseMeasure;
 
   return (duration / measure.divisor).toFixed(4) + measure.unit;
 };
@@ -220,5 +221,28 @@ export const ui = (workersCount: number, file: string) => {
       process.exit(0);
     }
   });
+
+  // const benchesPerWorker = Math.ceil(benches.length / workersCount);
+  // const workers = Iterator.natural(workersCount)
+  //   .map((i) => {
+  //     const workerBenches = Iterator.natural(benchesPerWorker)
+  //       .map((j) => i + j * workersCount)
+  //       .filter((j) => j < benches.length)
+  //       .map((j) => benches[j].id)
+  //       .toArray();
+  //     return workerBenches;
+  //   })
+  //   .map((benchIds) => {
+  //     const workerData: WorkerData = { file, benchIds };
+  //     const url = new URL('../worker.js', import.meta.url);
+  //     return new Worker(url, { workerData });
+  //   })
+  //   .toArray();
+  // for (const worker of workers) {
+  //   // worker.on('message', (message: WorkerOutMessage) => {
+  //   // });
+  //   worker.postMessage({ type: 'run' });
+  // }
+
   render(<App workersCount={workersCount} file={file} />);
 };

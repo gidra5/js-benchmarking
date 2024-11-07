@@ -5,7 +5,7 @@ import { Body } from './components/Body.js';
 import readline from 'node:readline';
 import { Worker } from 'node:worker_threads';
 import { benches } from '../bench.js';
-import { type WorkerData, type WorkerOutMessage } from '../worker.js';
+import { type WorkerData, type WorkerOutMessage } from '../runner/worker.js';
 import { Iterator } from 'iterator-js';
 import { Table } from './components/Table.js';
 import {
@@ -59,7 +59,7 @@ const useBenches = (workersCount: number, file: string) => {
           stats: Iterator.iterEntries(_stats)
             .mapValues(() => false)
             .toObject(),
-          complexity: constant(),
+          complexity: constant(1),
         },
       ])
       .toObject()
@@ -98,7 +98,7 @@ const useBenches = (workersCount: number, file: string) => {
       })
       .map((benchIds) => {
         const workerData: WorkerData = { file, benchIds };
-        const url = new URL('../worker.js', import.meta.url);
+        const url = new URL('../runner/worker.js', import.meta.url);
         return new Worker(url, { workerData });
       })
       .toArray();
@@ -118,6 +118,13 @@ const useBenches = (workersCount: number, file: string) => {
           const stats = measured;
           setBenchesState((state) => {
             return { ...state, [benchId]: { ...state[benchId], stats } };
+          });
+        }
+        if (message.type === 'complexity') {
+          const { benchId, measured } = message;
+          const complexity = measured;
+          setBenchesState((state) => {
+            return { ...state, [benchId]: { ...state[benchId], complexity } };
           });
         }
         if (message.type === 'done') {
@@ -191,18 +198,18 @@ const App = ({ workersCount, file }: Props) => {
               );
             },
           },
-          ...Iterator.iterKeys(_stats).map((name) => ({
-            name,
-            render(entry: (typeof stats)[0]) {
-              return <Text>{entry.stats[name]}</Text>;
-            },
-          })),
           {
             name: 'complexity',
             render(entry) {
               return <Text>O({stringify(entry.complexity)})</Text>;
             },
           },
+          ...Iterator.iterKeys(_stats).map((name) => ({
+            name,
+            render(entry: (typeof stats)[0]) {
+              return <Text>{entry.stats[name]}</Text>;
+            },
+          })),
         ]}
         flexGrow={1}
         flexShrink={1}

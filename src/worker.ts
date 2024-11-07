@@ -7,8 +7,9 @@ import {
 import { benches } from './bench.js';
 import fc from 'fast-check';
 import { Iterator } from 'iterator-js';
-import { ComplexityExpression, constant } from './complexity/index.js';
+import { ComplexityExpression } from './complexity/index.js';
 import { stats as _stats, binarySearch, Stats } from './runner/index.js';
+import { generation, init } from './complexity/worker.js';
 
 assert(parentPort, 'must run in worker');
 
@@ -23,6 +24,7 @@ export type StatsMessage = {
 };
 export type WorkerInMessage = { type: 'run' } | { type: 'abort' };
 export type WorkerOutMessage =
+  | { type: 'complexity'; benchId: number; measured: ComplexityExpression }
   | { type: 'stats'; benchId: number; measured: Stats }
   | { type: 'failed'; benchId: number; error: any; sizes: number[] }
   | { type: 'done'; benchId: number }
@@ -37,6 +39,7 @@ const _iterationsPerSample = getEnvironmentData(
   'iterationsPerSample'
 ) as number;
 const targetLatency = getEnvironmentData('targetLatency') as number;
+const populationSize = getEnvironmentData('populationSize') as number;
 await import(file);
 const workerBenches = benches.filter((b) => benchIds.includes(b.id));
 const emit = (message: WorkerOutMessage) => {
@@ -59,11 +62,14 @@ const sizes: Record<number, number[][]> = Iterator.iter(benches)
   // .filter((bench) => bench.type === 'complexityMeasurement')
   .map<[number, number[][]]>((bench) => [bench.id, []])
   .toObject();
-const complexities: Record<number, ComplexityExpression> = Iterator.iter(
+const complexities: Record<number, ComplexityExpression[]> = Iterator.iter(
   benches
 )
   // .filter((bench) => bench.type === 'complexityMeasurement')
-  .map<[number, ComplexityExpression]>((bench) => [bench.id, constant()])
+  .map<[number, ComplexityExpression[]]>((bench) => [
+    bench.id,
+    'paramsCount' in bench ? init(bench.paramsCount, populationSize) : [],
+  ])
   .toObject();
 // const errors: Record<number, { error: any; sizes: number[] }> = {};
 
@@ -81,6 +87,24 @@ function recomputeStats(benchId: number, duration: number) {
     .toObject();
   return stats;
 }
+
+function recomputeComplexity(
+  duration: number,
+  sizes: number[],
+  benchId: number
+): ComplexityExpression {
+  const data = [{ duration, sizes }];
+  complexities[benchId] = generation(
+    data,
+    complexities[benchId] ?? [],
+    sizes.length,
+    0.5,
+    0.5
+  );
+
+  return complexities[benchId][0][0];
+}
+
 const sizeArb = (paramsCount: number) =>
   fc.tuple(...Iterator.repeat(fc.nat()).take(paramsCount));
 
@@ -97,10 +121,10 @@ parentPort.on('message', async (message) => {
       } = bench;
       let iterationsPerSample =
         bench.iterationsPerSample ?? _iterationsPerSample;
-      const measure = async (
+      const measureDuration = async (
         params?: any,
         updateIPS = true
-      ): Promise<Stats> => {
+      ): Promise<number> => {
         const start = performance.now();
         for (let i = 0; i < iterationsPerSample; i++) {
           await benchFn(params);
@@ -117,15 +141,26 @@ parentPort.on('message', async (message) => {
           iterationsPerSample = Math.ceil(targetLatency / duration);
         }
 
-        return recomputeStats(benchId, duration);
+        return duration;
       };
-      const measureSize = async (_sizes: number[]): Promise<Stats> => {
+      const measure = async (
+        params?: any,
+        updateIPS = true
+      ): Promise<Stats> => {
+        return recomputeStats(
+          benchId,
+          await measureDuration(params, updateIPS)
+        );
+      };
+      const measureSize = async (
+        paramsCount: number
+      ): Promise<ComplexityExpression> => {
         assert('genSamples' in bench);
+        const _sizes = fc.sample(sizeArb(paramsCount), 1)[0];
         const params = bench.genSamples(..._sizes);
         try {
-          const measured = await measure(params, false);
-          // sizes[benchId].push(_sizes);
-          return measured;
+          const measured = await measureDuration(params, false);
+          return recomputeComplexity(measured, _sizes, benchId);
         } catch (error) {
           throw { error, sizes: _sizes };
         }
@@ -135,20 +170,21 @@ parentPort.on('message', async (message) => {
 
       try {
         if ('baseCase' in bench) {
-          // const paramsCount = bench.paramsCount;
-          for (let i = 0; i < iterations; i++) {
-            const base = bench.baseCase();
-            const measured = await measure(base);
-            emit({ type: 'stats', benchId, measured });
+          const paramsCount = bench.paramsCount;
+          for (let i = 0; i < Math.max(iterations, complexityIterations); i++) {
+            if (i < iterations) {
+              const base = bench.baseCase();
+              const measured = await measure(base);
+              emit({ type: 'stats', benchId, measured });
+            }
+            if (i < complexityIterations) {
+              const _iterationsPerSample = iterationsPerSample;
+              iterationsPerSample = 1;
+              const measured = await measureSize(paramsCount);
+              iterationsPerSample = _iterationsPerSample;
+              emit({ type: 'complexity', benchId, measured });
+            }
           }
-
-          // iterationsPerSample = 1;
-          // for (let i = 0; i < complexityIterations; i++) {
-          //   const sizes = Iterator.repeat(1000).take(paramsCount).toArray();
-          //   // const sizes = fc.sample(sizeArb(paramsCount), 1)[0];
-          //   const measured = await measureSize(sizes);
-          //   emit({ type: 'stats', benchId, measured });
-          // }
         } else {
           for (let i = 0; i < iterations; i++) {
             const measured = await measure();

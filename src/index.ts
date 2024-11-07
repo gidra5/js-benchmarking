@@ -3,6 +3,7 @@ import { benches } from './bench.js';
 import { ui } from './ui/index.js';
 import { setEnvironmentData } from 'node:worker_threads';
 import os from 'node:os';
+import { resolve } from 'node:path';
 
 program
   .argument('<bench-file>', 'Path to benchmark file')
@@ -37,10 +38,11 @@ program
     setEnvironmentData('complexityIterations', complexityIterations);
     setEnvironmentData('iterationsPerSample', iterationsPerSample);
     setEnvironmentData('targetLatency', targetLatency);
+    const resolved = import.meta.resolve(file);
 
-    await import(file);
+    await import(resolved);
 
-    ui(Math.min(workersCount, benches.length), file);
+    ui(Math.min(workersCount, benches.length), resolved);
   });
 
 program.parse();

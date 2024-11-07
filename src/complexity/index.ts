@@ -111,7 +111,8 @@ const _eval = (expr: ComplexityExpression, sizes: number[]): number => {
   const [a, b] = expr.coeffs;
   if (expr.type === 'variable') return a * sizes[expr.index] + b;
   else if (expr.type === 'exp') return a * Math.exp(_eval(expr.arg, sizes)) + b;
-  else if (expr.type === 'log') return a * Math.log(_eval(expr.arg, sizes)) + b;
+  else if (expr.type === 'log')
+    return a * Math.log(Math.max(_eval(expr.arg, sizes), 0)) + b;
   else if (expr.type === 'add')
     return a * expr.args.reduce((sum, arg) => sum + _eval(arg, sizes), 0) + b;
   return 0;
@@ -131,11 +132,17 @@ export const arbComplexityExpression = (sizesCount: number) =>
   fc.letrec<{ expr: ComplexityExpression }>((tie) => ({
     expr: fc.tuple(fc.float(), fc.float()).chain((coeffs) =>
       fc.oneof(
+        {
+          depthIdentifier: 'expr',
+          depthSize: 'small',
+        },
         fc.constant(constant(coeffs[0])),
-        fc.nat(sizesCount).map((index) => variable(index, coeffs)),
+        fc.nat(sizesCount - 1).map((index) => variable(index, coeffs)),
         tie('expr').map((arg) => exp(arg, coeffs)),
         tie('expr').map((arg) => log(arg, coeffs)),
-        fc.array(tie('expr')).map((args) => add(coeffs, ...args))
+        fc
+          .array(tie('expr'), { minLength: 2 })
+          .map((args) => add(coeffs, ...args))
       )
     ),
   })).expr;

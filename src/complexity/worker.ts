@@ -12,14 +12,14 @@ import {
 } from './index.js';
 import fc from 'fast-check';
 
-const objective = (
+export const objective = (
   data: { duration: number; sizes: number[] }[],
   expr: ComplexityExpression
 ) => {
   return datasetFitness(expr, data) + cost(expr);
 };
 
-const obj2fitness = (objs: number[]) => {
+export const obj2fitness = (objs: number[]) => {
   const low = Math.min(...objs);
   const minimal = (Math.max(...objs) - low) * 0.1;
   return objs.map((val) => val - low + minimal);
@@ -105,12 +105,11 @@ const crossover = (
         case 'log':
           return crossoverCoeffs(expr1, expr2);
         case 'add':
-          const [_x1, _x2] = Iterator.zip(expr1.args, expr2.args)
-            .map(([expr1, expr2]) => crossover(expr1, expr2, prob))
-            .unzip();
-
-          const args1 = [...{ [Symbol.iterator]: () => _x1 }];
-          const args2 = [...{ [Symbol.iterator]: () => _x2 }];
+          const x = Iterator.zip(expr1.args, expr2.args).map(([expr1, expr2]) =>
+            crossover(expr1, expr2, prob)
+          );
+          const args1 = x.map(([expr1, expr2]) => expr1).toArray();
+          const args2 = x.map(([expr1, expr2]) => expr2).toArray();
 
           return crossoverCoeffs(
             { ...expr1, args: args1 },
@@ -264,5 +263,7 @@ export const generation = (
     newObjectives[indexOfWorst] = oldBest;
   }
 
-  return newPopulation;
+  return newPopulation.toSorted(
+    (a, b) => objective(data, a) - objective(data, b)
+  );
 };

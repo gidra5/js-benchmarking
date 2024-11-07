@@ -8,8 +8,18 @@ import { benches } from '../bench.js';
 import fc from 'fast-check';
 import { Iterator } from 'iterator-js';
 import { ComplexityExpression } from '../complexity/index.js';
-import { stats as _stats, binarySearch, Stats } from './index.js';
-import { generation, init } from '../complexity/worker.js';
+import {
+  stats as _stats,
+  binarySearch,
+  binarySearchSizeDurations,
+  Stats,
+} from './index.js';
+import {
+  generation,
+  init,
+  obj2fitness,
+  objective,
+} from '../complexity/worker.js';
 import fs from 'node:fs';
 
 assert(parentPort, 'must run in worker');
@@ -25,7 +35,12 @@ export type StatsMessage = {
 };
 export type WorkerInMessage = { type: 'run' } | { type: 'abort' };
 export type WorkerOutMessage =
-  | { type: 'complexity'; benchId: number; measured: ComplexityExpression }
+  | {
+      type: 'complexity';
+      benchId: number;
+      measured: ComplexityExpression;
+      fitness: number;
+    }
   | { type: 'stats'; benchId: number; measured: Stats }
   | { type: 'failed'; benchId: number; error: any; sizes: number[] }
   | { type: 'done'; benchId: number }
@@ -97,22 +112,33 @@ function recomputeComplexity(
   duration: number,
   sizes: number[],
   benchId: number
-): ComplexityExpression {
+): [ComplexityExpression, number] {
+  const base = avgs[benchId];
   const data = sizeDurations[benchId];
-  data.push({ duration, sizes });
+  const index = binarySearchSizeDurations(data, duration, sizes);
+  data.splice(index, 0, { duration, sizes });
+  // console.log(data);
+  const normalized = data.map(({ duration, sizes }) => ({
+    duration: duration / base,
+    sizes,
+  }));
+  const currentPopulation = complexities[benchId] ?? [];
   complexities[benchId] = generation(
-    data,
-    complexities[benchId] ?? [],
+    normalized,
+    currentPopulation,
     sizes.length,
-    0.5,
-    0.5
+    0.7,
+    0.25
   );
 
-  return complexities[benchId][0][0];
+  const best = complexities[benchId][0];
+  const obj = objective(normalized, best);
+
+  return [best, obj];
 }
 
 const sizeArb = (paramsCount: number) =>
-  fc.tuple(...Iterator.repeat(fc.nat()).take(paramsCount));
+  fc.tuple(...Iterator.repeat(fc.nat({ max: 100 })).take(paramsCount));
 
 parentPort.on('message', async (message) => {
   assert(parentPort);
@@ -160,7 +186,7 @@ parentPort.on('message', async (message) => {
       };
       const measureSize = async (
         paramsCount: number
-      ): Promise<ComplexityExpression> => {
+      ): Promise<[ComplexityExpression, number]> => {
         assert('genSamples' in bench);
         const _sizes = fc.sample(sizeArb(paramsCount), 1)[0];
         const params = bench.genSamples(..._sizes);
@@ -186,9 +212,9 @@ parentPort.on('message', async (message) => {
             if (i < complexityIterations) {
               const _iterationsPerSample = iterationsPerSample;
               iterationsPerSample = 1;
-              const measured = await measureSize(paramsCount);
+              const [measured, fitness] = await measureSize(paramsCount);
               iterationsPerSample = _iterationsPerSample;
-              emit({ type: 'complexity', benchId, measured });
+              emit({ type: 'complexity', benchId, measured, fitness });
             }
           }
         } else {

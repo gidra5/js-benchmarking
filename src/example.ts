@@ -32,26 +32,19 @@ function quicksort(arr: number[]): number[] {
 bench({
   name: 'quicksort',
   bench: quicksort,
-
   paramsCount: 1,
   genSamples: (n) => {
-    n = Math.min(n, 1000);
     const arb = fc.array(fc.integer(), { minLength: n, maxLength: n });
     return fc.sample(arb, 1)[0];
   },
   baseCase: () => Iterator.natural(1000).toArray().toReversed(),
 });
 
-// bench({
-//   name: 'quicksort fixed worst case',
-//   bench: () => quicksort(Iterator.natural(1000).toArray().toReversed()),
-// });
-
 bench({
   name: 'fib memoized',
   bench: (n: number) => fibMemoized()(n),
   paramsCount: 1,
-  genSamples: (n) => Math.min(n, 32),
+  genSamples: (n) => n,
   baseCase: () => 32,
 });
 
@@ -59,7 +52,7 @@ bench({
   name: 'fib',
   bench: fib,
   paramsCount: 1,
-  genSamples: (n) => Math.min(n, 32),
+  genSamples: (n) => n,
   baseCase: () => 32,
   iterations: 1000,
 });

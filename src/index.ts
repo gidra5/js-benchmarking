@@ -38,6 +38,7 @@ program
     setEnvironmentData('complexityIterations', complexityIterations);
     setEnvironmentData('iterationsPerSample', iterationsPerSample);
     setEnvironmentData('targetLatency', targetLatency);
+    setEnvironmentData('populationSize', 10);
     const resolved = import.meta.resolve(file);
 
     await import(resolved);

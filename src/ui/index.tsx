@@ -44,6 +44,7 @@ type BenchState = {
   name: string;
   status: BenchStatus;
   stats: Stats;
+  fitness: number;
   complexity: ComplexityExpression;
 };
 
@@ -60,6 +61,7 @@ const useBenches = (workersCount: number, file: string) => {
             .mapValues(() => false)
             .toObject(),
           complexity: constant(1),
+          fitness: 0,
         },
       ])
       .toObject()
@@ -73,14 +75,14 @@ const useBenches = (workersCount: number, file: string) => {
   }, [benchesState]);
   const stats = useMemo(() => {
     return Iterator.iterValues(benchesState)
-      .map(({ name, status, stats: _stats, complexity }) => {
+      .map(({ name, status, stats: _stats, complexity, fitness }) => {
         const stats = Iterator.iterEntries(_stats)
           .map<[keyof typeof _stats, string]>(([name, value]) => [
             name,
             value !== false ? formatDuration(value) : '-',
           ])
           .toObject();
-        return { name, status, stats, complexity };
+        return { name, status, stats, complexity, fitness: fitness.toFixed(4) };
       })
       .toArray();
   }, [benchesState]);
@@ -121,10 +123,13 @@ const useBenches = (workersCount: number, file: string) => {
           });
         }
         if (message.type === 'complexity') {
-          const { benchId, measured } = message;
+          const { benchId, measured, fitness } = message;
           const complexity = measured;
           setBenchesState((state) => {
-            return { ...state, [benchId]: { ...state[benchId], complexity } };
+            return {
+              ...state,
+              [benchId]: { ...state[benchId], complexity, fitness },
+            };
           });
         }
         if (message.type === 'done') {
@@ -138,6 +143,8 @@ const useBenches = (workersCount: number, file: string) => {
         }
         if (message.type === 'failed') {
           const { benchId } = message;
+          // console.log('failed', message);
+
           setBenchesState((state) => {
             return {
               ...state,
@@ -199,6 +206,12 @@ const App = ({ workersCount, file }: Props) => {
             },
           },
           {
+            name: 'fitness',
+            render(entry) {
+              return <Text>{entry.fitness}</Text>;
+            },
+          },
+          {
             name: 'complexity',
             render(entry) {
               return <Text>O({stringify(entry.complexity)})</Text>;
@@ -241,13 +254,14 @@ export const ui = (workersCount: number, file: string) => {
   //   })
   //   .map((benchIds) => {
   //     const workerData: WorkerData = { file, benchIds };
-  //     const url = new URL('../worker.js', import.meta.url);
+  //     const url = new URL('../runner/worker.js', import.meta.url);
   //     return new Worker(url, { workerData });
   //   })
   //   .toArray();
   // for (const worker of workers) {
-  //   // worker.on('message', (message: WorkerOutMessage) => {
-  //   // });
+  //   worker.on('message', (message: WorkerOutMessage) => {
+  //     console.log(message);
+  //   });
   //   worker.postMessage({ type: 'run' });
   // }
 
